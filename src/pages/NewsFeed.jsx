@@ -56,9 +56,9 @@ export default function NewsFeed() {
       let combined = [];
 
       if (searchQuery.trim()) {
-        // Search overrides all
+        // Search overrides all (free plan: top-headlines with q=)
         const res = await fetch(
-          `https://newsapi.org/v2/everything?q=${encodeURIComponent(
+          `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
             searchQuery
           )}&pageSize=20&apiKey=${KEY}`
         );
@@ -74,7 +74,7 @@ export default function NewsFeed() {
           const results = await Promise.all(
             userCategories.map(async (cat) => {
               const r = await fetch(
-                `https://newsapi.org/v2/everything?q=${encodeURIComponent(
+                `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
                   cat
                 )}&pageSize=10&apiKey=${KEY}`
               );
@@ -84,9 +84,9 @@ export default function NewsFeed() {
           combined = results.flat();
         }
       } else {
-        // Single category
+        // Single category (free plan: top-headlines with q=)
         const res = await fetch(
-          `https://newsapi.org/v2/everything?q=${encodeURIComponent(
+          `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
             selectedCategory
           )}&pageSize=20&apiKey=${KEY}`
         );
@@ -97,9 +97,9 @@ export default function NewsFeed() {
       const unique = Array.from(
         new Map(combined.map((a) => [a.url, a])).values()
       ).sort((a, b) => {
-        const da = new Date(a.publishedAt),
-          db_ = new Date(b.publishedAt);
-        return sortOrder === "newest" ? db_ - da : da - db_;
+        const da = new Date(a.publishedAt);
+        const db = new Date(b.publishedAt);
+        return sortOrder === "newest" ? db - da : da - db;
       });
 
       setArticles(unique);
