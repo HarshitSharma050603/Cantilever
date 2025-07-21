@@ -11,32 +11,25 @@ import "../App.css";
 export default function NewsFeed() {
   const navigate = useNavigate();
 
-  // Preferences & filter state
   const [userCategories, setUserCategories] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("All");
-
-  // Articles, loading, search
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
-
-  // Sort order: "newest" or "oldest"
   const [sortOrder, setSortOrder] = useState("newest");
 
   const allCategories = [
-    "All","Politics","Business","International","Local",
-    "National","Crime","Entertainment","Lifestyle",
-    "Sports","Science and Technology","Health"
+    "All", "Politics", "Business", "International", "Local",
+    "National", "Crime", "Entertainment", "Lifestyle",
+    "Sports", "Science and Technology", "Health"
   ];
 
-  // Logout
   const handleLogout = async () => {
     await signOut(auth);
     navigate("/");
   };
 
-  // Load user prefs once
   useEffect(() => {
     async function fetchPrefs() {
       const user = auth.currentUser;
@@ -47,9 +40,8 @@ export default function NewsFeed() {
     fetchPrefs();
   }, []);
 
-  // Fetch news whenever something changes
   useEffect(() => {
-    if (userCategories === null) return; // still loading prefs
+    if (userCategories === null) return;
 
     async function fetchNews() {
       setLoading(true);
@@ -57,23 +49,21 @@ export default function NewsFeed() {
       const MEDIA_KEY  = "ca609bc8967093386efa315d401cd64c";
       const GNEWS_KEY  = "22411af37ff531003f4bc2688eca166a";
       const NEWS_KEY   = "K1BeehjYsuU10s8j1LhkKh40J-HdQIkR5IalzUls0vhjv4Dv";
+      const NYT_KEY    = "vYgYMzAcsVGROeOrtq7RcmMruNVKXtqs";
       let combined = [];
 
-      // build a shared 'q' param
       let q = "";
       if (searchQuery.trim())             q = encodeURIComponent(searchQuery);
       else if (selectedCategory === "All" && userCategories.length)
                                          q = encodeURIComponent(userCategories.join(" OR "));
       else if (selectedCategory !== "All") q = encodeURIComponent(selectedCategory);
 
-      // 1) MediaStack (HTTPS)
       const msUrl = new URL("https://api.mediastack.com/v1/news");
       msUrl.searchParams.set("access_key", MEDIA_KEY);
       msUrl.searchParams.set("countries", "in");
       msUrl.searchParams.set("limit", "20");
       if (q) msUrl.searchParams.set("keywords", q);
 
-      // 2) GNews: SEARCH vs HEADLINES
       let gnUrl;
       if (q) {
         gnUrl = new URL("https://gnews.io/api/v4/search");
@@ -86,7 +76,6 @@ export default function NewsFeed() {
       gnUrl.searchParams.set("lang", "en");
       gnUrl.searchParams.set("max", "20");
 
-      // 3) NewsAPI.org (everything)
       const naUrl = new URL("https://newsapi.org/v2/everything");
       naUrl.searchParams.set("apiKey", NEWS_KEY);
       naUrl.searchParams.set("pageSize", "20");
@@ -94,47 +83,50 @@ export default function NewsFeed() {
       if (q) naUrl.searchParams.set("q", q);
       else  naUrl.searchParams.set("q", "latest");
 
+      const nytUrl = new URL("https://api.nytimes.com/svc/search/v2/articlesearch.json");
+      nytUrl.searchParams.set("api-key", NYT_KEY);
+      if (q) nytUrl.searchParams.set("q", q);
+      else nytUrl.searchParams.set("fq", "news_desk:(\"Top News\")");
+
       try {
-        const [msResp, gnResp, naResp] = await Promise.all([
+        const [msResp, gnResp, naResp, nytResp] = await Promise.all([
           fetch(msUrl.toString()),
           fetch(gnUrl.toString()),
           fetch(naUrl.toString()),
+          fetch(nytUrl.toString()),
         ]);
 
-        // MediaStack
-        if (!msResp.ok) console.warn("MediaStack skipped:", msResp.status);
-        else {
+        if (msResp.ok) {
           const j = await msResp.json();
           combined.push(...(j.data || []));
         }
 
-        // GNews
-        if (!gnResp.ok) console.warn("GNews skipped:", gnResp.status);
-        else {
+        if (gnResp.ok) {
           const j = await gnResp.json();
           combined.push(...(j.articles || []));
         }
 
-        // NewsAPI.org
-        if (!naResp.ok) console.warn("NewsAPI skipped:", naResp.status);
-        else {
+        if (naResp.ok) {
           const j = await naResp.json();
           combined.push(...(j.articles || []));
         }
 
-        // unify shape
-        combined = combined.map(item => ({
-          title:       item.title,
-          description: item.description,
-          url:         item.url,
-          urlToImage:  item.urlToImage || item.image || item.urlToImage || null,
-          publishedAt: item.published_at || item.publishedAt || item.publishedAt || null,
-        }));
+        if (nytResp.ok) {
+          const j = await nytResp.json();
+          combined.push(
+            ...(j.response?.docs || []).map(doc => ({
+              title: doc.headline.main,
+              description: doc.abstract,
+              url: doc.web_url,
+              urlToImage: null,
+              publishedAt: doc.pub_date,
+            }))
+          );
+        }
       } catch (err) {
         console.error("Combined fetch error:", err);
       }
 
-      // dedupe & sort
       const unique = Array.from(
         new Map(combined.map(a => [a.url, a])).values()
       ).sort((a, b) => {
@@ -151,7 +143,6 @@ export default function NewsFeed() {
 
   return (
     <div className="min-h-screen px-6 py-8 relative bg-gradient-to-b from-[#0f172a] to-[#1e293b] text-white">
-      {/* Logout / Date / Sort */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
         <div>
           <div className="text-lg font-medium">
@@ -183,7 +174,6 @@ export default function NewsFeed() {
         </button>
       </div>
 
-      {/* Heading & Search */}
       <div className="relative flex items-center justify-between pt-4 mb-2">
         <h1 className="heading-logo text-5xl md:text-7xl font-bold mx-auto">
           The Optimist Daily
@@ -202,7 +192,6 @@ export default function NewsFeed() {
       </div>
       <hr className="border-t border-white/30 w-full mb-4" />
 
-      {/* Categories */}
       <AnimatePresence>
         <div className="flex flex-wrap justify-center gap-4 mt-2 mb-2">
           {allCategories.map(cat => {
@@ -236,7 +225,6 @@ export default function NewsFeed() {
       </AnimatePresence>
       <hr className="border-t border-white/30 w-full mb-8" />
 
-      {/* News Cards */}
       {loading ? (
         <p className="text-center text-lg">Loading…</p>
       ) : (
