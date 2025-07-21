@@ -106,23 +106,25 @@ export default function NewsFeed() {
           combined.push(...(j.articles || []));
         }
 
-        if (naResp.ok) {
-          const j = await naResp.json();
-          combined.push(...(j.articles || []));
-        }
+     if (nytResp.ok) {
+  const j = await nytResp.json();
+  combined.push(
+    ...(j.response?.docs || []).map(doc => {
+      const baseUrl = "https://www.nytimes.com/";
+      const multimedia = doc.multimedia?.[0]?.url
+        ? baseUrl + doc.multimedia[0].url
+        : null;
+      return {
+        title: doc.headline.main,
+        description: doc.abstract,
+        url: doc.web_url,
+        urlToImage: multimedia,
+        publishedAt: doc.pub_date,
+      };
+    })
+  );
+}
 
-        if (nytResp.ok) {
-          const j = await nytResp.json();
-          combined.push(
-            ...(j.response?.docs || []).map(doc => ({
-              title: doc.headline.main,
-              description: doc.abstract,
-              url: doc.web_url,
-              urlToImage: null,
-              publishedAt: doc.pub_date,
-            }))
-          );
-        }
       } catch (err) {
         console.error("Combined fetch error:", err);
       }
