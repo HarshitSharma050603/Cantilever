@@ -72,16 +72,14 @@ export default function NewsFeed() {
         q = encodeURIComponent(selectedCategory);
       }
 
-      // 1) MediaStack fetch
-      //    - if q is empty, drop the 'keywords' param
-      const msUrl = new URL("http://api.mediastack.com/v1/news");
+      // 1) MediaStack fetch (HTTPS now!)
+      const msUrl = new URL("https://api.mediastack.com/v1/news");
       msUrl.searchParams.set("access_key", MEDIA_KEY);
       msUrl.searchParams.set("countries", "in");
       msUrl.searchParams.set("limit", "20");
       if (q) msUrl.searchParams.set("keywords", q);
 
       // 2) GNews fetch
-      //    - we'll use their top-headlines/search endpoint
       const gnUrl = new URL("https://gnews.io/api/v4/search");
       gnUrl.searchParams.set("token", GNEWS_KEY);
       gnUrl.searchParams.set("lang", "en");
@@ -89,24 +87,34 @@ export default function NewsFeed() {
       if (q) {
         gnUrl.searchParams.set("q", q);
       } else {
-        // no query: fallback to top-headlines
+        // fallback to top-headlines
         gnUrl.pathname = "/api/v4/top-headlines";
         gnUrl.searchParams.set("country", "in");
       }
 
       try {
-        const [msRes, gnRes] = await Promise.all([
-          fetch(msUrl.toString()).then(r => r.json()),
-          fetch(gnUrl.toString()).then(r => r.json()),
+        // fetch both, but first guard against HTTP errors
+        const [msResp, gnResp] = await Promise.all([
+          fetch(msUrl.toString()),
+          fetch(gnUrl.toString()),
         ]);
 
+        if (!msResp.ok) {
+          console.error("MediaStack error", msResp.status, await msResp.text());
+        }
+        if (!gnResp.ok) {
+          console.error("GNews error", gnResp.status, await gnResp.text());
+        }
+
+        const msJson = msResp.ok ? await msResp.json() : { data: [] };
+        const gnJson = gnResp.ok ? await gnResp.json() : { articles: [] };
+
         combined = [
-          ...(msRes.data || []),
-          ...(gnRes.articles || []),
+          ...(msJson.data || []),
+          ...(gnJson.articles || []),
         ];
 
-        // unify shape: MediaStack items have `url` and `image` fields,
-        // GNews uses `url` + `urlToImage`
+        // unify shape
         combined = combined.map(item => ({
           title:       item.title,
           description: item.description,
@@ -114,7 +122,6 @@ export default function NewsFeed() {
           urlToImage:  item.urlToImage || item.image || null,
           publishedAt: item.published_at || item.publishedAt || null,
         }));
-
       } catch (err) {
         console.error("Combined fetch error:", err);
       }
@@ -156,7 +163,7 @@ export default function NewsFeed() {
                     : "text-gray-300 hover:text-white"
                 }`}
               >
-                {opt==="newest"?"Newest":"Oldest"}
+                {opt==="newest" ? "Newest" : "Oldest"}
               </button>
             ))}
           </div>
@@ -177,12 +184,12 @@ export default function NewsFeed() {
         <motion.input
           type="text"
           value={searchQuery}
-          onChange={e=>setSearchQuery(e.target.value)}
+          onChange={e => setSearchQuery(e.target.value)}
           placeholder="Search headlines…"
-          onFocus={()=>setInputFocused(true)}
-          onBlur={()=>setInputFocused(false)}
-          animate={{ width: inputFocused?"180px":"130px" }}
-          transition={{ duration:0.3 }}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
+          animate={{ width: inputFocused ? "180px" : "130px" }}
+          transition={{ duration: 0.3 }}
           className="absolute right-0 border border-gray-300 rounded-md px-3 py-1 text-black focus:outline-none"
         />
       </div>
@@ -196,23 +203,23 @@ export default function NewsFeed() {
             return (
               <motion.span
                 key={cat}
-                onClick={()=>setSelectedCategory(cat)}
+                onClick={() => setSelectedCategory(cat)}
                 className={`cursor-pointer font-serif text-lg ${
                   active
                     ? "text-blue-400 underline drop-shadow glow"
                     : "text-white hover:text-blue-400"
                 }`}
-                whileTap={{ scale:0.9 }}
-                whileHover={{ scale:1.05 }}
+                whileTap={{ scale: 0.9 }}
+                whileHover={{ scale: 1.05 }}
               >
                 {cat}
                 {active && (
                   <motion.div
                     className="absolute -top-2 -right-2 w-2 h-2 bg-blue-400 rounded-full"
-                    initial={{ scale:0 }}
-                    animate={{ scale:1 }}
-                    exit={{ scale:0 }}
-                    transition={{ duration:0.3 }}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    exit={{ scale: 0 }}
+                    transition={{ duration: 0.3 }}
                   />
                 )}
               </motion.span>
@@ -223,32 +230,33 @@ export default function NewsFeed() {
       <hr className="border-t border-white/30 w-full mb-8" />
 
       {/* News Cards */}
-      {loading
-        ? <p className="text-center text-lg">Loading…</p>
-        : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {articles.map((a,i)=>(
-              <div key={i} className="news-card">
-                <h2 className="text-xl font-bold mb-2">{a.title}</h2>
-                {a.urlToImage && (
-                  <img
-                    src={a.urlToImage}
-                    alt=""
-                    className="w-full h-48 object-cover rounded-md mb-3"
-                  />
-                )}
-                <p className="text-sm mb-4">{a.description||"No description."}</p>
-                <a
-                  href={a.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 underline"
-                >
-                  Read more
-                </a>
-              </div>
-            ))}
-          </div>
-      }
+      {loading ? (
+        <p className="text-center text-lg">Loading…</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {articles.map((a,i) => (
+            <div key={i} className="news-card">
+              <h2 className="text-xl font-bold mb-2">{a.title}</h2>
+              {a.urlToImage && (
+                <img
+                  src={a.urlToImage}
+                  alt=""
+                  className="w-full h-48 object-cover rounded-md mb-3"
+                />
+              )}
+              <p className="text-sm mb-4">{a.description || "No description."}</p>
+              <a
+                href={a.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 underline"
+              >
+                Read more
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
