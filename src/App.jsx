@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
 import AuthPage from "./pages/AuthPage";
 import NewsFeed from "./pages/NewsFeed";
 import CategorySelection from "./pages/CategorySelection";
@@ -28,6 +34,7 @@ function AnimatedRoutes({ user, categorySelected }) {
             </PageWrapper>
           }
         />
+
         <Route
           path="/newsfeed"
           element={
@@ -36,6 +43,7 @@ function AnimatedRoutes({ user, categorySelected }) {
             </PageWrapper>
           }
         />
+
         <Route
           path="/category-selection"
           element={
@@ -44,6 +52,9 @@ function AnimatedRoutes({ user, categorySelected }) {
             </PageWrapper>
           }
         />
+
+        {/* ← catch-all: redirect any unknown path back home */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatePresence>
   );
@@ -83,7 +94,9 @@ function App() {
 
         if (userSnap.exists()) {
           const data = userSnap.data();
-          setCategorySelected(Array.isArray(data.categories) && data.categories.length > 0);
+          setCategorySelected(
+            Array.isArray(data.categories) && data.categories.length > 0
+          );
         } else {
           setCategorySelected(false);
         }

@@ -52,11 +52,11 @@ export default function NewsFeed() {
 
     async function fetchNews() {
       setLoading(true);
-      const KEY = "8699fa974d3b462e85790d0a68bf2c84";
+      const KEY = "22411af37ff531003f4bc2688eca166a";
       let combined = [];
 
       if (searchQuery.trim()) {
-        // Search overrides all (free plan: top-headlines with q=)
+        // Search override via top-headlines?q=
         const res = await fetch(
           `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
             searchQuery
@@ -64,7 +64,7 @@ export default function NewsFeed() {
         );
         combined = (await res.json()).articles || [];
       } else if (selectedCategory === "All") {
-        // Mix or top-headlines
+        // Mix user prefs or global top-headlines
         if (!userCategories.length) {
           const res = await fetch(
             `https://newsapi.org/v2/top-headlines?country=in&pageSize=20&apiKey=${KEY}`
@@ -84,7 +84,7 @@ export default function NewsFeed() {
           combined = results.flat();
         }
       } else {
-        // Single category (free plan: top-headlines with q=)
+        // Single selected category
         const res = await fetch(
           `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
             selectedCategory
@@ -93,13 +93,13 @@ export default function NewsFeed() {
         combined = (await res.json()).articles || [];
       }
 
-      // Dedupe and sort
+      // Dedupe & sort by date
       const unique = Array.from(
         new Map(combined.map((a) => [a.url, a])).values()
       ).sort((a, b) => {
-        const da = new Date(a.publishedAt);
-        const db = new Date(b.publishedAt);
-        return sortOrder === "newest" ? db - da : da - db;
+        const da = new Date(a.publishedAt),
+          db_ = new Date(b.publishedAt);
+        return sortOrder === "newest" ? db_ - da : da - db_;
       });
 
       setArticles(unique);
@@ -119,7 +119,6 @@ export default function NewsFeed() {
               weekday: "short", day: "2-digit", month: "short", year: "numeric",
             })}
           </div>
-          {/* — Improved segmented sort control — */}
           <div className="mt-2 inline-flex rounded-full bg-gray-800">
             {["newest", "oldest"].map((opt) => (
               <button
@@ -171,19 +170,18 @@ export default function NewsFeed() {
         {categories.map((cat) => {
           const active = selectedCategory === cat;
           return (
-            <motion.span
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`cursor-pointer font-serif text-lg ${
-                active
-                  ? "text-blue-400 underline drop-shadow glow"
-                  : "text-white hover:text-blue-400"
-              }`}
-              whileTap={{ scale: 0.9 }}
-              whileHover={{ scale: 1.05 }}
-            >
-              {cat}
-              <AnimatePresence>
+            <AnimatePresence key={cat}>
+              <motion.span
+                onClick={() => setSelectedCategory(cat)}
+                className={`cursor-pointer font-serif text-lg ${
+                  active
+                    ? "text-blue-400 underline drop-shadow glow"
+                    : "text-white hover:text-blue-400"
+                }`}
+                whileTap={{ scale: 0.9 }}
+                whileHover={{ scale: 1.05 }}
+              >
+                {cat}
                 {active && (
                   <motion.div
                     className="absolute -top-2 -right-2 w-2 h-2 bg-blue-400 rounded-full"
@@ -193,8 +191,8 @@ export default function NewsFeed() {
                     transition={{ duration: 0.3 }}
                   />
                 )}
-              </AnimatePresence>
-            </motion.span>
+              </motion.span>
+            </AnimatePresence>
           );
         })}
       </div>
