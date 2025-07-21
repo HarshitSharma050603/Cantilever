@@ -42,9 +42,7 @@ export default function NewsFeed() {
       const user = auth.currentUser;
       if (!user) return;
       const snap = await getDoc(doc(db, "users", user.uid));
-      setUserCategories(
-        snap.exists() ? snap.data().categories || [] : []
-      );
+      setUserCategories(snap.exists() ? snap.data().categories || [] : []);
     }
     fetchPrefs();
   }, []);
@@ -56,82 +54,91 @@ export default function NewsFeed() {
     async function fetchNews() {
       setLoading(true);
 
-      const MEDIA_KEY = "ca609bc8967093386efa315d401cd64c";
-      const GNEWS_KEY = "22411af37ff531003f4bc2688eca166a";
+      const MEDIA_KEY  = "ca609bc8967093386efa315d401cd64c";
+      const GNEWS_KEY  = "22411af37ff531003f4bc2688eca166a";
+      const NEWS_KEY   = "K1BeehjYsuU10s8j1LhkKh40J-HdQIkR5IalzUls0vhjv4Dv";
       let combined = [];
 
-      // build a shared 'query' string:
+      // build a shared 'q' param
       let q = "";
-      if (searchQuery.trim()) {
-        q = encodeURIComponent(searchQuery);
-      } else if (selectedCategory === "All") {
-        if (userCategories.length) {
-          q = encodeURIComponent(userCategories.join(" OR "));
-        }
-      } else {
-        q = encodeURIComponent(selectedCategory);
-      }
+      if (searchQuery.trim())             q = encodeURIComponent(searchQuery);
+      else if (selectedCategory === "All" && userCategories.length)
+                                         q = encodeURIComponent(userCategories.join(" OR "));
+      else if (selectedCategory !== "All") q = encodeURIComponent(selectedCategory);
 
-      // 1) MediaStack fetch (HTTPS now!)
+      // 1) MediaStack (HTTPS)
       const msUrl = new URL("https://api.mediastack.com/v1/news");
       msUrl.searchParams.set("access_key", MEDIA_KEY);
       msUrl.searchParams.set("countries", "in");
       msUrl.searchParams.set("limit", "20");
       if (q) msUrl.searchParams.set("keywords", q);
 
-      // 2) GNews fetch
-      const gnUrl = new URL("https://gnews.io/api/v4/search");
+      // 2) GNews: SEARCH vs HEADLINES
+      let gnUrl;
+      if (q) {
+        gnUrl = new URL("https://gnews.io/api/v4/search");
+        gnUrl.searchParams.set("q", q);
+      } else {
+        gnUrl = new URL("https://gnews.io/api/v4/top-headlines");
+        gnUrl.searchParams.set("country", "in");
+      }
       gnUrl.searchParams.set("token", GNEWS_KEY);
       gnUrl.searchParams.set("lang", "en");
       gnUrl.searchParams.set("max", "20");
-      if (q) {
-        gnUrl.searchParams.set("q", q);
-      } else {
-        // fallback to top-headlines
-        gnUrl.pathname = "/api/v4/top-headlines";
-        gnUrl.searchParams.set("country", "in");
-      }
+
+      // 3) NewsAPI.org (everything)
+      const naUrl = new URL("https://newsapi.org/v2/everything");
+      naUrl.searchParams.set("apiKey", NEWS_KEY);
+      naUrl.searchParams.set("pageSize", "20");
+      naUrl.searchParams.set("language", "en");
+      if (q) naUrl.searchParams.set("q", q);
+      else  naUrl.searchParams.set("q", "latest");
 
       try {
-        // fetch both, but first guard against HTTP errors
-        const [msResp, gnResp] = await Promise.all([
+        const [msResp, gnResp, naResp] = await Promise.all([
           fetch(msUrl.toString()),
           fetch(gnUrl.toString()),
+          fetch(naUrl.toString()),
         ]);
 
-        if (!msResp.ok) {
-          console.error("MediaStack error", msResp.status, await msResp.text());
-        }
-        if (!gnResp.ok) {
-          console.error("GNews error", gnResp.status, await gnResp.text());
+        // MediaStack
+        if (!msResp.ok) console.warn("MediaStack skipped:", msResp.status);
+        else {
+          const j = await msResp.json();
+          combined.push(...(j.data || []));
         }
 
-        const msJson = msResp.ok ? await msResp.json() : { data: [] };
-        const gnJson = gnResp.ok ? await gnResp.json() : { articles: [] };
+        // GNews
+        if (!gnResp.ok) console.warn("GNews skipped:", gnResp.status);
+        else {
+          const j = await gnResp.json();
+          combined.push(...(j.articles || []));
+        }
 
-        combined = [
-          ...(msJson.data || []),
-          ...(gnJson.articles || []),
-        ];
+        // NewsAPI.org
+        if (!naResp.ok) console.warn("NewsAPI skipped:", naResp.status);
+        else {
+          const j = await naResp.json();
+          combined.push(...(j.articles || []));
+        }
 
         // unify shape
         combined = combined.map(item => ({
           title:       item.title,
           description: item.description,
           url:         item.url,
-          urlToImage:  item.urlToImage || item.image || null,
-          publishedAt: item.published_at || item.publishedAt || null,
+          urlToImage:  item.urlToImage || item.image || item.urlToImage || null,
+          publishedAt: item.published_at || item.publishedAt || item.publishedAt || null,
         }));
       } catch (err) {
         console.error("Combined fetch error:", err);
       }
 
-      // Dedupe & sort by date
+      // dedupe & sort
       const unique = Array.from(
         new Map(combined.map(a => [a.url, a])).values()
       ).sort((a, b) => {
-        const da = new Date(a.publishedAt),
-              db_ = new Date(b.publishedAt);
+        const da = new Date(a.publishedAt), db_ = new Date(b.publishedAt);
         return sortOrder === "newest" ? db_ - da : da - db_;
       });
 
@@ -163,7 +170,7 @@ export default function NewsFeed() {
                     : "text-gray-300 hover:text-white"
                 }`}
               >
-                {opt==="newest" ? "Newest" : "Oldest"}
+                {opt==="newest"? "Newest" : "Oldest"}
               </button>
             ))}
           </div>
@@ -234,7 +241,7 @@ export default function NewsFeed() {
         <p className="text-center text-lg">Loading…</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map((a,i) => (
+          {articles.map((a, i) => (
             <div key={i} className="news-card">
               <h2 className="text-xl font-bold mb-2">{a.title}</h2>
               {a.urlToImage && (
