@@ -1,3 +1,4 @@
+// src/pages/NewsFeed.jsx
 import React, { useEffect, useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
@@ -10,12 +11,17 @@ import "../App.css";
 export default function NewsFeed() {
   const navigate = useNavigate();
 
+  // Preferences & filter state
   const [userCategories, setUserCategories] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("All");
+
+  // Articles, loading, search
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
+
+  // Sort order: "newest" or "oldest"
   const [sortOrder, setSortOrder] = useState("newest");
 
   const allCategories = [
@@ -24,96 +30,110 @@ export default function NewsFeed() {
     "Sports","Science and Technology","Health"
   ];
 
+  // Logout
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/");
+  };
+
   // Load user prefs once
   useEffect(() => {
     async function fetchPrefs() {
       const user = auth.currentUser;
       if (!user) return;
       const snap = await getDoc(doc(db, "users", user.uid));
-      setUserCategories(snap.exists() ? snap.data().categories || [] : []);
+      setUserCategories(
+        snap.exists() ? snap.data().categories || [] : []
+      );
     }
     fetchPrefs();
   }, []);
 
   // Fetch news whenever something changes
   useEffect(() => {
-    if (userCategories === null) return; // still loading
+    if (userCategories === null) return; // still loading prefs
 
     async function fetchNews() {
       setLoading(true);
-      const KEY = "22411af37ff531003f4bc2688eca166a";
+
+      const MEDIA_KEY = "ca609bc8967093386efa315d401cd64c";
+      const GNEWS_KEY = "22411af37ff531003f4bc2688eca166a";
       let combined = [];
 
-      // 1) Search always uses /everything
+      // build a shared 'query' string:
+      let q = "";
       if (searchQuery.trim()) {
-        const r = await fetch(
-          `https://newsapi.org/v2/everything?language=en&q=${encodeURIComponent(searchQuery)}&pageSize=20&apiKey=${KEY}`
-        );
-        combined = (await r.json()).articles || [];
-
-      // 2) “All” => mix of user categories or top-headlines
+        q = encodeURIComponent(searchQuery);
       } else if (selectedCategory === "All") {
-        if (!userCategories.length) {
-          const r = await fetch(
-            `https://newsapi.org/v2/top-headlines?country=in&pageSize=20&apiKey=${KEY}`
-          );
-          combined = (await r.json()).articles || [];
-        } else {
-          const results = await Promise.all(
-            userCategories.map(async cat => {
-              // if cat is one of the 7 built-in top-headlines categories:
-              const builtIn = ["business","entertainment","general","health","science","sports","technology"];
-              if (builtIn.includes(cat.toLowerCase())) {
-                const rr = await fetch(
-                  `https://newsapi.org/v2/top-headlines?country=in&category=${cat.toLowerCase()}&pageSize=10&apiKey=${KEY}`
-                );
-                return (await rr.json()).articles || [];
-              }
-              // otherwise fallback to /everything
-              const rr = await fetch(
-                `https://newsapi.org/v2/everything?language=en&q=${encodeURIComponent(cat)}&pageSize=10&apiKey=${KEY}`
-              );
-              return (await rr.json()).articles || [];
-            })
-          );
-          combined = results.flat();
+        if (userCategories.length) {
+          q = encodeURIComponent(userCategories.join(" OR "));
         }
-
-      // 3) Single category selected:
       } else {
-        const builtIn = ["business","entertainment","general","health","science","sports","technology"];
-        if (builtIn.includes(selectedCategory.toLowerCase())) {
-          const r = await fetch(
-            `https://newsapi.org/v2/top-headlines?country=in&category=${selectedCategory.toLowerCase()}&pageSize=20&apiKey=${KEY}`
-          );
-          combined = (await r.json()).articles || [];
-        } else {
-          const r = await fetch(
-            `https://newsapi.org/v2/everything?language=en&q=${encodeURIComponent(selectedCategory)}&pageSize=20&apiKey=${KEY}`
-          );
-          combined = (await r.json()).articles || [];
-        }
+        q = encodeURIComponent(selectedCategory);
       }
 
-      // Dedupe & sort
+      // 1) MediaStack fetch
+      //    - if q is empty, drop the 'keywords' param
+      const msUrl = new URL("http://api.mediastack.com/v1/news");
+      msUrl.searchParams.set("access_key", MEDIA_KEY);
+      msUrl.searchParams.set("countries", "in");
+      msUrl.searchParams.set("limit", "20");
+      if (q) msUrl.searchParams.set("keywords", q);
+
+      // 2) GNews fetch
+      //    - we'll use their top-headlines/search endpoint
+      const gnUrl = new URL("https://gnews.io/api/v4/search");
+      gnUrl.searchParams.set("token", GNEWS_KEY);
+      gnUrl.searchParams.set("lang", "en");
+      gnUrl.searchParams.set("max", "20");
+      if (q) {
+        gnUrl.searchParams.set("q", q);
+      } else {
+        // no query: fallback to top-headlines
+        gnUrl.pathname = "/api/v4/top-headlines";
+        gnUrl.searchParams.set("country", "in");
+      }
+
+      try {
+        const [msRes, gnRes] = await Promise.all([
+          fetch(msUrl.toString()).then(r => r.json()),
+          fetch(gnUrl.toString()).then(r => r.json()),
+        ]);
+
+        combined = [
+          ...(msRes.data || []),
+          ...(gnRes.articles || []),
+        ];
+
+        // unify shape: MediaStack items have `url` and `image` fields,
+        // GNews uses `url` + `urlToImage`
+        combined = combined.map(item => ({
+          title:       item.title,
+          description: item.description,
+          url:         item.url,
+          urlToImage:  item.urlToImage || item.image || null,
+          publishedAt: item.published_at || item.publishedAt || null,
+        }));
+
+      } catch (err) {
+        console.error("Combined fetch error:", err);
+      }
+
+      // Dedupe & sort by date
       const unique = Array.from(
         new Map(combined.map(a => [a.url, a])).values()
-      ).sort((a,b) => {
+      ).sort((a, b) => {
         const da = new Date(a.publishedAt),
               db_ = new Date(b.publishedAt);
-        return sortOrder==="newest" ? db_ - da : da - db_;
+        return sortOrder === "newest" ? db_ - da : da - db_;
       });
+
       setArticles(unique);
       setLoading(false);
     }
 
     fetchNews();
   }, [searchQuery, selectedCategory, userCategories, sortOrder]);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
-  };
 
   return (
     <div className="min-h-screen px-6 py-8 relative bg-gradient-to-b from-[#0f172a] to-[#1e293b] text-white">
@@ -210,10 +230,19 @@ export default function NewsFeed() {
               <div key={i} className="news-card">
                 <h2 className="text-xl font-bold mb-2">{a.title}</h2>
                 {a.urlToImage && (
-                  <img src={a.urlToImage} alt="" className="w-full h-48 object-cover rounded-md mb-3"/>
+                  <img
+                    src={a.urlToImage}
+                    alt=""
+                    className="w-full h-48 object-cover rounded-md mb-3"
+                  />
                 )}
                 <p className="text-sm mb-4">{a.description||"No description."}</p>
-                <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 underline"
+                >
                   Read more
                 </a>
               </div>
