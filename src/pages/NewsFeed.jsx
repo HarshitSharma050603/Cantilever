@@ -10,32 +10,21 @@ import "../App.css";
 export default function NewsFeed() {
   const navigate = useNavigate();
 
-  // Preferences & filter state
   const [userCategories, setUserCategories] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("All");
-
-  // Articles, loading, search
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
-
-  // Sort order: "newest" or "oldest"
   const [sortOrder, setSortOrder] = useState("newest");
 
-  const categories = [
-    "All", "Politics", "Business", "International", "Local",
-    "National", "Crime", "Entertainment", "Lifestyle",
-    "Sports", "Science and Technology", "Health",
+  const allCategories = [
+    "All","Politics","Business","International","Local",
+    "National","Crime","Entertainment","Lifestyle",
+    "Sports","Science and Technology","Health"
   ];
 
-  // Logout
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
-  };
-
-  // Load user categories once
+  // Load user prefs once
   useEffect(() => {
     async function fetchPrefs() {
       const user = auth.currentUser;
@@ -46,62 +35,74 @@ export default function NewsFeed() {
     fetchPrefs();
   }, []);
 
-  // Fetch articles on dependency changes
+  // Fetch news whenever something changes
   useEffect(() => {
-    if (userCategories === null) return; // still loading prefs
+    if (userCategories === null) return; // still loading
 
     async function fetchNews() {
       setLoading(true);
       const KEY = "22411af37ff531003f4bc2688eca166a";
       let combined = [];
 
+      // 1) Search always uses /everything
       if (searchQuery.trim()) {
-        // Search override via top-headlines?q=
-        const res = await fetch(
-          `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
-            searchQuery
-          )}&pageSize=20&apiKey=${KEY}`
+        const r = await fetch(
+          `https://newsapi.org/v2/everything?language=en&q=${encodeURIComponent(searchQuery)}&pageSize=20&apiKey=${KEY}`
         );
-        combined = (await res.json()).articles || [];
+        combined = (await r.json()).articles || [];
+
+      // 2) “All” => mix of user categories or top-headlines
       } else if (selectedCategory === "All") {
-        // Mix user prefs or global top-headlines
         if (!userCategories.length) {
-          const res = await fetch(
+          const r = await fetch(
             `https://newsapi.org/v2/top-headlines?country=in&pageSize=20&apiKey=${KEY}`
           );
-          combined = (await res.json()).articles || [];
+          combined = (await r.json()).articles || [];
         } else {
           const results = await Promise.all(
-            userCategories.map(async (cat) => {
-              const r = await fetch(
-                `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
-                  cat
-                )}&pageSize=10&apiKey=${KEY}`
+            userCategories.map(async cat => {
+              // if cat is one of the 7 built-in top-headlines categories:
+              const builtIn = ["business","entertainment","general","health","science","sports","technology"];
+              if (builtIn.includes(cat.toLowerCase())) {
+                const rr = await fetch(
+                  `https://newsapi.org/v2/top-headlines?country=in&category=${cat.toLowerCase()}&pageSize=10&apiKey=${KEY}`
+                );
+                return (await rr.json()).articles || [];
+              }
+              // otherwise fallback to /everything
+              const rr = await fetch(
+                `https://newsapi.org/v2/everything?language=en&q=${encodeURIComponent(cat)}&pageSize=10&apiKey=${KEY}`
               );
-              return (await r.json()).articles || [];
+              return (await rr.json()).articles || [];
             })
           );
           combined = results.flat();
         }
+
+      // 3) Single category selected:
       } else {
-        // Single selected category
-        const res = await fetch(
-          `https://newsapi.org/v2/top-headlines?country=in&q=${encodeURIComponent(
-            selectedCategory
-          )}&pageSize=20&apiKey=${KEY}`
-        );
-        combined = (await res.json()).articles || [];
+        const builtIn = ["business","entertainment","general","health","science","sports","technology"];
+        if (builtIn.includes(selectedCategory.toLowerCase())) {
+          const r = await fetch(
+            `https://newsapi.org/v2/top-headlines?country=in&category=${selectedCategory.toLowerCase()}&pageSize=20&apiKey=${KEY}`
+          );
+          combined = (await r.json()).articles || [];
+        } else {
+          const r = await fetch(
+            `https://newsapi.org/v2/everything?language=en&q=${encodeURIComponent(selectedCategory)}&pageSize=20&apiKey=${KEY}`
+          );
+          combined = (await r.json()).articles || [];
+        }
       }
 
-      // Dedupe & sort by date
+      // Dedupe & sort
       const unique = Array.from(
-        new Map(combined.map((a) => [a.url, a])).values()
-      ).sort((a, b) => {
+        new Map(combined.map(a => [a.url, a])).values()
+      ).sort((a,b) => {
         const da = new Date(a.publishedAt),
-          db_ = new Date(b.publishedAt);
-        return sortOrder === "newest" ? db_ - da : da - db_;
+              db_ = new Date(b.publishedAt);
+        return sortOrder==="newest" ? db_ - da : da - db_;
       });
-
       setArticles(unique);
       setLoading(false);
     }
@@ -109,123 +110,116 @@ export default function NewsFeed() {
     fetchNews();
   }, [searchQuery, selectedCategory, userCategories, sortOrder]);
 
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/");
+  };
+
   return (
     <div className="min-h-screen px-6 py-8 relative bg-gradient-to-b from-[#0f172a] to-[#1e293b] text-white">
-      {/* Logout / Date / Quote / Sort */}
+      {/* Logout / Date / Sort */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
         <div>
-          <div className="text-white text-lg font-medium">
+          <div className="text-lg font-medium">
             {new Date().toLocaleDateString("en-GB", {
-              weekday: "short", day: "2-digit", month: "short", year: "numeric",
+              weekday:"short", day:"2-digit", month:"short", year:"numeric"
             })}
           </div>
           <div className="mt-2 inline-flex rounded-full bg-gray-800">
-            {["newest", "oldest"].map((opt) => (
+            {["newest","oldest"].map(opt => (
               <button
                 key={opt}
                 onClick={() => setSortOrder(opt)}
                 className={`px-4 py-1 text-sm font-medium transition ${
-                  sortOrder === opt
+                  sortOrder===opt
                     ? "bg-blue-600 text-white rounded-full"
                     : "text-gray-300 hover:text-white"
                 }`}
               >
-                {opt === "newest" ? "Newest First" : "Oldest First"}
+                {opt==="newest"?"Newest":"Oldest"}
               </button>
             ))}
           </div>
         </div>
-        <div className="italic text-sm font-semibold text-white font-serif">
-          "A good newspaper is a nation talking to itself"
-        </div>
         <button
           onClick={handleLogout}
-          className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
+          className="bg-red-500 px-3 py-1 rounded hover:bg-red-600 transition"
         >
           Logout
         </button>
       </div>
 
-      {/* Heading + Search */}
+      {/* Heading & Search */}
       <div className="relative flex items-center justify-between pt-4 mb-2">
-        <h1 className="heading-logo text-5xl md:text-7xl font-bold text-center mx-auto">
+        <h1 className="heading-logo text-5xl md:text-7xl font-bold mx-auto">
           The Optimist Daily
         </h1>
         <motion.input
           type="text"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search headlines..."
-          onFocus={() => setInputFocused(true)}
-          onBlur={() => setInputFocused(false)}
-          animate={{ width: inputFocused ? "180px" : "130px" }}
-          transition={{ duration: 0.3 }}
-          className="text-black px-3 py-1 rounded-md focus:outline-none border border-gray-300 absolute right-0"
+          onChange={e=>setSearchQuery(e.target.value)}
+          placeholder="Search headlines…"
+          onFocus={()=>setInputFocused(true)}
+          onBlur={()=>setInputFocused(false)}
+          animate={{ width: inputFocused?"180px":"130px" }}
+          transition={{ duration:0.3 }}
+          className="absolute right-0 border border-gray-300 rounded-md px-3 py-1 text-black focus:outline-none"
         />
       </div>
       <hr className="border-t border-white/30 w-full mb-4" />
 
       {/* Categories */}
-      <div className="flex flex-wrap justify-center gap-4 mt-2 mb-2">
-        {categories.map((cat) => {
-          const active = selectedCategory === cat;
-          return (
-            <AnimatePresence key={cat}>
+      <AnimatePresence>
+        <div className="flex flex-wrap justify-center gap-4 mt-2 mb-2">
+          {allCategories.map(cat => {
+            const active = selectedCategory === cat;
+            return (
               <motion.span
-                onClick={() => setSelectedCategory(cat)}
+                key={cat}
+                onClick={()=>setSelectedCategory(cat)}
                 className={`cursor-pointer font-serif text-lg ${
                   active
                     ? "text-blue-400 underline drop-shadow glow"
                     : "text-white hover:text-blue-400"
                 }`}
-                whileTap={{ scale: 0.9 }}
-                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale:0.9 }}
+                whileHover={{ scale:1.05 }}
               >
                 {cat}
                 {active && (
                   <motion.div
                     className="absolute -top-2 -right-2 w-2 h-2 bg-blue-400 rounded-full"
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    exit={{ scale: 0 }}
-                    transition={{ duration: 0.3 }}
+                    initial={{ scale:0 }}
+                    animate={{ scale:1 }}
+                    exit={{ scale:0 }}
+                    transition={{ duration:0.3 }}
                   />
                 )}
               </motion.span>
-            </AnimatePresence>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </AnimatePresence>
       <hr className="border-t border-white/30 w-full mb-8" />
 
       {/* News Cards */}
-      {loading ? (
-        <p className="text-center text-lg">Loading articles...</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map((a, i) => (
-            <div key={i} className="news-card">
-              <h2 className="text-xl font-bold mb-2">{a.title}</h2>
-              {a.urlToImage && (
-                <img
-                  src={a.urlToImage}
-                  alt=""
-                  className="w-full h-48 object-cover rounded-md mb-3"
-                />
-              )}
-              <p className="text-sm mb-4">{a.description || "No description."}</p>
-              <a
-                href={a.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 underline"
-              >
-                Read more
-              </a>
-            </div>
-          ))}
-        </div>
-      )}
+      {loading
+        ? <p className="text-center text-lg">Loading…</p>
+        : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {articles.map((a,i)=>(
+              <div key={i} className="news-card">
+                <h2 className="text-xl font-bold mb-2">{a.title}</h2>
+                {a.urlToImage && (
+                  <img src={a.urlToImage} alt="" className="w-full h-48 object-cover rounded-md mb-3"/>
+                )}
+                <p className="text-sm mb-4">{a.description||"No description."}</p>
+                <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">
+                  Read more
+                </a>
+              </div>
+            ))}
+          </div>
+      }
     </div>
   );
 }
